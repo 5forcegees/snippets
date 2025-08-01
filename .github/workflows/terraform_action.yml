@@ -1,0 +1,58 @@
+name: terraform_action
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment_names:
+        description: "environment_name: environment to execute e.g. dev, test, test-static, etc."
+        default: 'test'
+      terraform_action:
+        description: "terraform_action: plan, apply, import, or destroy"
+        default: 'plan'
+
+jobs:
+  init:
+    runs-on: ubuntu-latest
+    outputs:
+      environment_names: ${{ steps.generate-matrix.outputs.environment_names }}
+      terraform_action: ${{ steps.generate-matrix.outputs.terraform_action }}
+    steps:
+      - name: generate-matrix
+        id: generate-matrix
+        run: |
+          environment_names=$(echo '"${{ inputs.environment_names }}"' | jq -c '. | split(",") | map(select(length > 0))')
+          echo "environment_names=$environment_names" >> $GITHUB_OUTPUT
+          
+          terraform_action=$(echo '"${{ inputs.terraform_action }}"' | jq -c '. | split(",") | map(select(length > 0))')
+          echo "terraform_action=$terraform_action" >> $GITHUB_OUTPUT
+
+  Deployment:
+    runs-on: ubuntu-latest
+    needs: init
+    strategy:
+      matrix:
+        environment_name: ${{ fromJSON(needs.init.outputs.environment_names)}}
+        terraform_action: ${{ fromJSON(needs.init.outputs.terraform_action)}}
+
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.environment_name }}-${{ matrix.terraform_action }}
+      cancel-in-progress: true
+
+    environment: ${{ matrix.environment_name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: echo inputs
+        run: |
+            echo "env: ${{ matrix.environment_name }}"
+            echo "terraform_action: ${{ matrix.terraform_action }}"
+
